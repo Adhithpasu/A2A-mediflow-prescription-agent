@@ -20,6 +20,9 @@ from .fhir import (
     get_active_medications,
     get_patient_demographics,
     get_recent_observations,
+    generate_prescription_tool,
+    calculate_risk_factors_tool,
+
 )
 
 __all__ = [
@@ -27,4 +30,6 @@ __all__ = [
     "get_active_medications",
     "get_active_conditions",
     "get_recent_observations",
+    "generate_prescription_tool",
+    "calculate_risk_factors_tool",
 ]
