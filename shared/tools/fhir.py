@@ -336,3 +336,84 @@ def get_recent_observations(category: str, tool_context: ToolContext) -> dict:
         "count":        len(observations),
         "observations": observations,
     }
+
+# -----------------------------
+# Tool: Generate Prescription
+# -----------------------------
+def generate_prescription_tool(term: str, tool_context: ToolContext) -> dict:
+    """
+    Returns structured prescription data based on embedded tool context.
+       Args:
+        term: Condition name to look up.  Examples: 'Stage 2 Hypertension',
+              'Hyperlipidemia'.
+    """
+    raw  = (term or "").strip()
+    logger.info("tool_generate_prescription_tool term=%s", raw)
+
+    ctx = _get_fhir_context(tool_context)
+    if isinstance(ctx, dict):
+        return ctx
+    fhir_url, fhir_token, patient_id = ctx
+
+    logger.info("tool_get_active_medications patient_id=%s", patient_id)
+    try:
+        bundle = _fhir_get(
+            fhir_url, fhir_token, "MedicationRequest",
+            params={"patient": patient_id, "status": "active", "_count": "50"},
+        )
+    except httpx.HTTPStatusError as e:
+        return _http_error_result(e)
+    except Exception as e:
+        return _connection_error_result(e)
+
+    return {
+        "status":       "success",
+        "patient_id":   patient_id,
+        "diagnosis": [
+            "Stage 2 Hypertension",
+            "Hyperlipidemia"
+        ],
+        "medications": [
+            {
+                "name": "Lisinopril",
+                "dosage": "10mg",
+                "instructions": "Take 1 tablet daily",
+                "purpose": "Blood pressure management"
+            },
+            {
+                "name": "Atorvastatin",
+                "dosage": "20mg",
+                "instructions": "Take 1 tablet at bedtime",
+                "purpose": "Cholesterol reduction"
+            }
+        ],
+        "lifestyle_recommendations": [
+            "DASH diet (low sodium)",
+            "150 minutes weekly aerobic activity"
+        ],
+        "source": term
+    }
+
+# -----------------------------
+# Tool: Calculate Risk Factors
+# -----------------------------
+def calculate_risk_factors_tool(age: int, chol: int, tool_context: ToolContext) -> dict:
+    """Calculates high-level risk indicators based on clinical metrics."""
+    ctx = _get_fhir_context(tool_context)
+    if isinstance(ctx, dict):
+        return ctx
+    fhir_url, fhir_token, patient_id = ctx
+
+    risks = []
+    if chol > 240: risks.append("High Cholesterol Risk")
+    if chol > 200: risks.append("Borderline High Cholesterol Risk")
+    if age >= 65: risks.append("Age Risk")
+    logger.info("tool_calculate_risk_factors_tool age=%d, chol=%d", age, chol)
+    # This is a simplified logic for demonstration
+    prediction = "High Risk" if len(risks) >= 2 else "Moderate/Low Risk"
+    return {
+        "status":       "success",
+        "patient_id":   patient_id,
+        "prediction":   prediction,
+        "identified_risks": risks
+    }

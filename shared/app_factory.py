@@ -43,6 +43,17 @@ Usage:
         port=8002,
         require_api_key=False,
     )
+
+    # Authenticated agent (requires X-API-Key)
+    a2a_app = create_a2a_app(
+        agent=root_agent,
+        name="prescriptionservice_agent",
+        description="Queries patient prescription data.",
+        url="http://localhost:8009",
+        port=8009,
+        fhir_extension_uri="https://your-workspace/schemas/a2a/v1/fhir-context", 
+        require_api_key=True,   # default — can be omitted
+    )
 """
 from a2a.types import (
     AgentCapabilities,
@@ -52,10 +63,17 @@ from a2a.types import (
     APIKeySecurityScheme,
     In,
     SecurityScheme,
+    AgentInterface,
 )
 from google.adk.a2a.utils.agent_to_a2a import to_a2a
 
 from shared.middleware import ApiKeyMiddleware
+import os
+
+
+from starlette.applications import Starlette
+from starlette.responses import JSONResponse
+from starlette.routing import Route, Mount
 
 
 def create_a2a_app(
@@ -93,14 +111,13 @@ def create_a2a_app(
     """
     # Optional FHIR extension — only included when the agent supports it.
     extensions = []
+    url = "http://localhost:8009"
     if fhir_extension_uri:
-        extensions = [
             AgentExtension(
                 uri=fhir_extension_uri,
                 description="FHIR R4 context — allows the agent to query the patient's FHIR server.",
                 required=True,
             )
-        ]
 
     # Security scheme — advertised in the agent card so callers know what to send.
     if require_api_key:
@@ -140,7 +157,69 @@ def create_a2a_app(
         security=security,
     )
 
-    app = to_a2a(agent, port=port, agent_card=agent_card)
+
+    
+    a2a_app = to_a2a(agent, port=port, agent_card=agent_card)
+    print("A2A APP TYPE:", type(a2a_app), a2a_app)
+
+
+    async def custom_agent_card(request):
+        return JSONResponse(
+            {
+                "name": name,
+                "description": description,
+                "url": url,
+                "version": version,
+                "protocolVersion": "1.0",
+                "defaultInputModes": ["text/plain"],
+                "defaultOutputModes": ["text/plain"],
+                "capabilities": {
+                    "streaming": True,
+                    "pushNotifications": False,
+                    "stateTransitionHistory": True,
+                    "extensions": [],
+
+                },
+                "skills": [
+                    {
+                        "id": getattr(skill, "id", ""),
+                        "name": getattr(skill, "name", ""),
+                        "description": getattr(skill, "description", ""),
+                        "tags": getattr(skill, "tags", []),
+                    }
+                    for skill in (skills or [])
+                ],
+                "securitySchemes": (
+                    {
+                        "apiKey": {
+                            "type": "apiKey",
+                            "name": "X-API-Key",
+                            "in": "header",
+                            "description": "API key required to access this agent.",
+                        }
+                    }
+                    if require_api_key
+                    else None
+                ),
+                "security": ([{"apiKey": []}] if require_api_key else None),
+                "supportedInterfaces": [
+                    {
+                        "url": url,
+                        "transport": "HTTP",
+                        "protocolBinding": "JSONRPC",
+                        "protocolVersion": "1.0",
+                    }
+                ],
+            }
+        )
+
+    
+    app = Starlette(
+        routes=[
+            Route("/.well-known/agent-card.json", custom_agent_card),
+            Mount("/", app=a2a_app),
+        ]
+    )
 
     # Only attach the key-enforcement middleware for authenticated agents.
     if require_api_key:
